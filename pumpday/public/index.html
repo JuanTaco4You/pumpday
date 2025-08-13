@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>PumpDay — live</title>
+    <style>
+      body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 0; background: #0b0d12; color: #e6e9ef; }
+      header { position: sticky; top: 0; background: #0f1320; padding: 12px 16px; border-bottom: 1px solid #22293a;}
+      h1 { font-size: 18px; margin: 0; letter-spacing: 0.4px;}
+      .tag { font-size: 12px; opacity: 0.8; }
+      table { width: 100%; border-collapse: collapse; font-size: 14px; }
+      th, td { padding: 8px 10px; border-bottom: 1px solid #1b2030; }
+      th { text-align: left; color: #93a2c8; font-weight: 600; position: sticky; top: 52px; background: #0b0d12; }
+      tr:hover { background: #101524; }
+      .small { font-size: 12px; color: #9fb0d0; }
+      .green { color: #7ee787; } .red { color: #ff7b72; }
+      .mono { font-family: ui-monospace, Menlo, Consolas, monospace; }
+      .score { font-variant-numeric: tabular-nums; }
+      .pill { display:inline-block; padding:2px 6px; border:1px solid #2b3756; border-radius:12px; font-size:12px; color:#a8b5d9;}
+      .wrap { max-width: 1100px; margin: 0 auto; padding: 0 8px; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div class="wrap">
+        <h1>PumpDay <span class="tag">— realtime Pump.fun scout</span></h1>
+      </div>
+    </header>
+    <main class="wrap">
+      <p class="small">Auto-refreshing. Scores are z-scored across the current universe and will jump as the universe changes.</p>
+      <table id="t">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Mint</th>
+            <th>Symbol</th>
+            <th>Buy/Sell (60s)</th>
+            <th>Buys/min</th>
+            <th>Unique buyers</th>
+            <th>Momentum (5m)</th>
+            <th>Score</th>
+            <th>Age</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </main>
+    <script>
+      const fmtPct = x => (x*100).toFixed(1) + '%';
+      const ago = ts => {
+        const s = Math.max(0, Math.floor(Date.now()/1000 - ts));
+        if (s < 60) return s + 's';
+        const m = Math.floor(s/60); if (m < 60) return m + 'm';
+        const h = Math.floor(m/60); return h + 'h';
+      }
+
+      async function refresh() {
+        const res = await fetch('/tokens/top?limit=100');
+        const data = await res.json();
+        const tbody = document.querySelector('#t tbody');
+        tbody.innerHTML = '';
+        data.forEach((t, i) => {
+          const r60 = t.rolling60 || {};
+          const r300 = t.rolling300 || {};
+          const buyImb = (r60.volBuySol - r60.volSellSol) / Math.max(1, (r60.volBuySol + r60.volSellSol));
+          const mom5 = (r300.prices?.length || 0) >= 2 ? (r300.prices.at(-1)/r300.prices.at(-2)-1) : 0;
+          const tr = document.createElement('tr');
+          tr.innerHTML = `
+            <td>${i+1}</td>
+            <td class="mono">${t.mint.slice(0,4)}…${t.mint.slice(-4)}</td>
+            <td>${t.symbol || ''}</td>
+            <td><span class="${buyImb>=0?'green':'red'}">${fmtPct(buyImb)}</span></td>
+            <td>${r60.buys||0}</td>
+            <td>${(r60.uniqueBuyers?.length)||Array.from(r60.uniqueBuyers||[]).length}</td>
+            <td>${(t.rolling300 && t.rolling300.prices && t.rolling300.prices.length>1) ? fmtPct((t.rolling300.prices.at(-1)/t.rolling300.prices[0])-1) : '—'}</td>
+            <td class="score">${(t.score??0).toFixed(2)}</td>
+            <td>${ago(t.createdAt)}</td>
+          `;
+          tbody.appendChild(tr);
+        });
+      }
+      refresh();
+      setInterval(refresh, 1500);
+    </script>
+  </body>
+</html>
