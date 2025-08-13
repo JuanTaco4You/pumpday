@@ -22,8 +22,8 @@ It streams live events, tracks short‑horizon order flow, computes a **risk‑a
 Prereqs: **Node.js 20+** (includes npm).
 
 ```bash
-git clone https://github.com/<you>/<repo>.git
-cd <repo>
+git clone https://github.com/JuanTaco4You/pumpday.git
+cd pumpday
 npm i
 npm run dev
 # open http://localhost:8787
