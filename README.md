@@ -1,189 +1,63 @@
-# PumpDay — Realtime Pump.fun Scout & Research Dashboard
+# PumpDay — Pump.fun day-trading research dashboard (MVP)
 
-PumpDay is a lean, batteries-included **day‑trading research** tool for Pump.fun coins.  
-It streams live events, tracks short‑horizon order flow, computes a **risk‑adjusted momentum score**, and serves a simple dashboard + JSON API you can script against.
+**What it is:** a tiny Node/TypeScript server that listens to the PumpPortal WebSocket,
+tracks brand-new Pump.fun coins and live trades, scores them with a simple *risk‑adjusted momentum* metric,
+and serves a barebones HTML dashboard plus JSON endpoints.
 
-> **Disclaimer:** This project is for **research and education**. It does not predict profits, and it cannot prevent losses. Crypto is volatile; rugs and soft-rugs happen. Use at your own risk.
-
----
-
-## Features
-
-- **Live stream** of Pump.fun new tokens, trades, and migrations via PumpPortal WebSocket.
-- Rolling **60s / 300s** windows for buy/sell counts, SOL volume, unique buyers, and short-term price drift.
-- A composite **score** that ranks tokens by risk‑adjusted momentum (self‑normalizing with z‑scores).
-- Tiny **HTML dashboard** and **REST API** for automation.
-- **Zero keys required** for bonding‑curve data; optional keys for enrichment after migration.
+> ⚠️ This is **researchware**, not financial advice. No keys required. No auto-trading by default.
 
 ---
 
-## Quick Start
-
-Prereqs: **Node.js 20+** (includes npm).
+## Quick start
 
 ```bash
-git clone https://github.com/JuanTaco4You/pumpday.git
-cd pumpday
+# 1) prerequisites: Node 20+
+# 2) install
 npm i
+# 3) run (dev mode with tsx)
 npm run dev
-# open http://localhost:8787
+# open the local dashboard
+# -> http://localhost:8787
 ```
 
-Production-ish:
-```bash
-npm start
-```
+Environment variables (optional):
 
-### Optional environment
+- `PUMPPORTAL_API_KEY` — only needed if you want paid PumpSwap trade streams (not required for bonding-curve data).
+- `BIRDEYE_API_KEY` — optional; enrich migrated tokens with OHLCV from Birdeye.
+- `PORT` — default 8787.
 
-Create `.env` (or copy from `.env.example`):
+## What it does
 
-```
-PUMPPORTAL_API_KEY=   # needed only for paid PumpSwap trade streams
-BIRDEYE_API_KEY=      # optional: enrich migrated tokens with OHLCV later
-PORT=8787
-```
+- One **WebSocket** to `wss://pumpportal.fun/api/data` (or `?api-key=...` if provided)
+- Subscribes to **new token** + **migration** events; auto-subscribes to **trades** for watched tokens
+- Maintains rolling 60s/300s windows of:
+  - buy/sell counts & SOL volume
+  - unique buyers
+  - price deltas (if present in payload) else estimates from trade price/amount
+- **Scores** tokens every second with a composite metric:
+  ```
+  score = z(buyImbalance) * 0.35
+        + z(buysPerMin)   * 0.30
+        + z(uniqueBuyers) * 0.20
+        + z(momentum5m)   * 0.10
+        + bonus_if_migratingsoon (0.05)
+  ```
+- Exposes:
+  - `GET /tokens` — full list, sorted by score
+  - `GET /tokens/top?limit=20` — top N
+  - `GET /tokens/:mint` — details + recent trades
+  - Dashboard at `/`
+
+## Extend it
+
+- Plug **Dexscreener** or **Birdeye** to enrich *migrated* tokens with liquidity/FDV.
+- Add a **paper trader** that simulates fills with simple slippage/fee model.
+- Add strategy modules and backtests.
+- For execution (at your own risk), wire **Jupiter Swap API** to place orders from a hot wallet running *off this box*.
 
 ---
 
-## How It Works
+## Legal & risk
 
-**Data source:** a single WebSocket to `wss://pumpportal.fun/api/data` (or `?api-key=...`).  
-On connect, the server subscribes to:
-
-- `newToken` — a Pump.fun launch on the bonding curve
-- `trade` — live buys/sells (curve; PumpSwap if you use an API key)
-- `migration` — token moves from bonding curve to AMM (PumpSwap)
-
-The app maintains rolling metrics per token and rescors every second.
-
-### Scoring (default)
-
-Let:
-- `buyImbalance` = (buy SOL − sell SOL) / (buy SOL + sell SOL) over **60s**
-- `buysPerMin` = buys in the last **60s**
-- `uniqueBuyers` = distinct buyer accounts in **60s**
-- `momentum5m` = price drift over **300s** (from payload price or SOL/token estimate)
-- `bonus_if_recently_migrated` = 0.05 if token migrated recently
-
-Then:
-```
-score = 0.35·z(buyImbalance)
-      + 0.30·z(buysPerMin)
-      + 0.20·z(uniqueBuyers)
-      + 0.10·z(momentum5m)
-      + 0.05·bonus_if_recently_migrated
-```
-> All components are **z‑scored** across the current live universe so the score adapts as conditions change.
-
-You can tweak the weights in `src/scorer.ts`.
-
----
-
-## REST API
-
-Base URL: `http://localhost:8787`
-
-- `GET /tokens/top?limit=50` — ranked list (default 50, max 200)
-- `GET /tokens` — full ranked list
-- `GET /tokens/:mint` — details for a single token (rolling windows + recent trades)
-
-**Example** (`/tokens/top?limit=2`):
-```json
-[
-  {
-    "mint": "F5...9q",
-    "symbol": "MEME",
-    "createdAt": 1723555900,
-    "score": 2.41,
-    "rolling60": {
-      "buys": 28,
-      "sells": 4,
-      "volBuySol": 37.2,
-      "volSellSol": 3.1,
-      "uniqueBuyers": ["..."],
-      "uniqueSellers": ["..."],
-      "prices": [0.0000005, 0.00000062, ...]
-    },
-    "rolling300": { "...": "..." }
-  },
-  {
-    "mint": "9J...3a",
-    "symbol": "DOG",
-    "score": 1.87,
-    "...": "..."
-  }
-]
-```
-
----
-
-## Project Structure
-
-```
-/src
-  index.ts         # Express server, routes, static dashboard
-  pumpportal.ts    # WebSocket client, subscriptions & routing
-  tokenbook.ts     # In-memory store, rolling windows, trade handling
-  scorer.ts        # Feature extraction + composite scoring
-/public
-  index.html       # Minimal live dashboard
-```
-
----
-
-## Development
-
-Run with hot‑reload:
-```bash
-npm run dev
-```
-
-Type-check only:
-```bash
-npm run typecheck
-```
-
-### Common Issues
-
-- **Blank dashboard**: allow ~30–60s for first events; ensure outbound WebSockets aren’t blocked.
-- **Port already in use**: set `PORT=8080` (PowerShell: `set PORT=8080; npm run dev`).
-- **Module not found (tsx/typescript)**: run `npm i` in the project root.
-
-### Keep It Running (optional)
-
-**PM2 (Linux/macOS):**
-```bash
-npm i -g pm2
-pm2 start "npm -- start" --name pumpday
-pm2 save && pm2 startup
-```
-
----
-
-## Extending the Platform
-
-- **DEX Screener / Birdeye enrichment** after migration (liquidity, FDV, price change, candles).
-- **Paper trader** with a realistic fill model (fees + slippage) and PnL reporting.
-- **Strategy modules** (plug‑in interface) with backtests over captured streams.
-- **Execution (advanced)** via Jupiter Swap API from a separate, locked‑down process.
-- **Risk filters**: creator heuristics, early whale concentration, time‑to‑N unique buyers, etc.
-
----
-
-## Security & Risk Notes
-
-- This repo **does not** custody keys by default. If you wire execution, isolate keys, rate‑limit orders, and bake in circuit breakers.
-- Pump.fun ecosystems are high‑velocity and **risky**. Rugs and contract shenanigans occur. Never trade more than you can afford to lose.
-
----
-
-## Contributing
-
-Issues and PRs are welcome. Keep changes small and focused. Add tests (or at least reproducible steps).
-
----
-
-## License
-
-MIT — see `LICENSE` (or replace with your preferred license).
+This code is for **education/research**. It does **not** guarantee profits, it **will** miss rugs, and it can break
+if upstream APIs change. You are responsible for any losses. Trade small, breathe often.
